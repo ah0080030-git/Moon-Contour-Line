@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Glass Moon Contour</title>
+<style>
+* {
+box-sizing: border-box;
+margin: 0;
+padding: 0;
+user-select: none;
+-webkit-user-select: none;
+}
+body, html {
+width: 100%;
+height: 100%;
+overflow: hidden;
+background-color: #000000;
+}
+#canvas-container {
+width: 100%;
+height: 100%;
+position: absolute;
+top: 0;
+left: 0;
+cursor: grab;
+}
+#canvas-container:active {
+cursor: grabbing;
+}
+.wave-text {
+position: absolute;
+bottom: 12%;
+left: 50%;
+transform: translateX(-50%);
+pointer-events: none;
+user-select: none;
+font-family: 'SF Mono', Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+font-size: 0.82rem;
+letter-spacing: 0.38em;
+text-transform: uppercase;
+white-space: nowrap;
+
+/* Efek gradasi bergelombang monokrom pada teks yang diam */
+background: linear-gradient(
+90deg,
+rgba(255, 255, 255, 0.22) 0%,
+rgba(255, 255, 255, 0.22) 30%,
+rgba(255, 255, 255, 1.0) 50%,
+rgba(255, 255, 255, 0.22) 70%,
+rgba(255, 255, 255, 0.22) 100%
+);
+background-size: 200% 100%;
+-webkit-background-clip: text;
+background-clip: text;
+-webkit-text-fill-color: transparent;
+animation: shimmerWave 2.8s linear infinite;
+}
+
+@keyframes shimmerWave {
+0% {
+background-position: 100% 0;
+}
+100% {
+background-position: -100% 0;
+}
+}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+<div id="canvas-container"></div>
+<div class="wave-text">connecting ...</div>
+
+<script>
+const container = document.getElementById('canvas-container');
+
+// Scene, Perspective Camera, and WebGL Renderer
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000000);
+
+const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 0, 5.8);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+container.appendChild(renderer.domElement);
+
+// Root Group
+const moonGroup = new THREE.Group();
+moonGroup.position.set(0, 0, 0);
+scene.add(moonGroup);
+
+// 3D Simplex Noise Shader Chunk
+const simplexNoise3D = `
+vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
+vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
+
+float snoise(vec3 v){
+const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+vec3 i = floor(v + dot(v, C.yyy));
+vec3 x0 = v - i + dot(i, C.xxx);
+vec3 g = step(x0.yzx, x0.xyz);
+vec3 l = 1.0 - g;
+vec3 i1 = min(g.xyz, l.zxy);
+vec3 i2 = max(g.xyz, l.zxy);
+vec3 x1 = x0 - i1 + 1.0 * C.xxx;
+vec3 x2 = x0 - i2 + 2.0 * C.xxx;
+vec3 x3 = x0 - 1.0 + 3.0 * C.xxx;
+i = mod(i, 289.0);
+vec4 p = permute(permute(permute(
+i.z + vec4(0.0, i1.z, i2.z, 1.0))
++ i.y + vec4(0.0, i1.y, i2.y, 1.0))
++ i.x + vec4(0.0, i1.x, i2.x, 1.0));
+float n_ = 0.142857142857;
+vec3 ns = n_ * D.wyz - D.xzx;
+vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+vec4 x_ = floor(j * ns.z);
+vec4 y_ = floor(j - 7.0 * x_);
+vec4 x = x_ * ns.x + ns.yyyy;
+vec4 y = y_ * ns.x + ns.yyyy;
+vec4 h = 1.0 - abs(x) - abs(y);
+vec4 b0 = vec4(x.xy, y.xy);
+vec4 b1 = vec4(x.zw, y.zw);
+vec4 s0 = floor(b0) * 2.0 + 1.0;
+vec4 s1 = floor(b1) * 2.0 + 1.0;
+vec4 sh = -step(h, vec4(0.0));
+vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
+vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
+vec3 p0 = vec3(a0.xy, h.x);
+vec3 p1 = vec3(a0.zw, h.y);
+vec3 p2 = vec3(a1.xy, h.z);
+vec3 p3 = vec3(a1.zw, h.w);
+vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+m = m * m;
+return 42.0 * dot(m * m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+}
+`;
+
+const uniforms = {
+uTime: { value: 0.0 },
+uDensity: { value: 26.0 },
+uHoverPoint: { value: new THREE.Vector3(10.0, 10.0, 10.0) },
+uHoverIntensity: { value: 0.0 }
+};
+
+// Glass Contour Outer Shader Material
+const contourMaterial = new THREE.ShaderMaterial({
+transparent: true,
+side: THREE.DoubleSide,
+depthWrite: false,
+blending: THREE.NormalBlending,
+uniforms: uniforms,
+vertexShader: `
+uniform float uTime;
+uniform vec3 uHoverPoint;
+uniform float uHoverIntensity;
+
+varying vec3 vNormal;
+varying vec3 vPos;
+varying vec3 vViewDir;
+varying float vElevation;
+varying float vHoverDist;
+
+${simplexNoise3D}
+
+void main() {
+vNormal = normalize(normalMatrix * normal);
+
+// Subtle lunar terrain wave undulations
+float wave = snoise(position * 1.5 + vec3(0.0, uTime * 0.35, 0.0)) * 0.12;
+wave += snoise(position * 3.5 - vec3(uTime * 0.2, 0.0, 0.0)) * 0.04;
+
+// Interactive surface touch ripple
+float d = distance(position, uHoverPoint);
+vHoverDist = d;
+float rippleRadius = 0.85;
+float ripple = 0.0;
+if (d < rippleRadius && uHoverIntensity > 0.001) {
+float decay = smoothstep(rippleRadius, 0.0, d);
+ripple = sin(d * 22.0 - uTime * 7.5) * 0.08 * decay * uHoverIntensity;
+}
+
+wave += ripple;
+vElevation = wave;
+
+vec3 displacedPos = position + normal * wave;
+vPos = displacedPos;
+
+vec4 mvPos = modelViewMatrix * vec4(displacedPos, 1.0);
+vViewDir = -mvPos.xyz;
+
+gl_Position = projectionMatrix * mvPos;
+}
+`,
+fragmentShader: `
+uniform float uDensity;
+uniform float uHoverIntensity;
+
+varying vec3 vNormal;
+varying vec3 vPos;
+varying vec3 vViewDir;
+varying float vElevation;
+varying float vHoverDist;
+
+void main() {
+// Topographic slice contouring
+float coord = (vPos.y + vElevation * 0.8) * uDensity;
+float f = abs(fract(coord - 0.5) - 0.5);
+float filterWidth = fwidth(coord);
+
+// Smooth anti-aliased contour lines
+float line = 1.0 - smoothstep(0.0, filterWidth * 1.25, f);
+
+// Optical glass effects
+vec3 N = normalize(vNormal);
+vec3 V = normalize(vViewDir);
+float NdotV = max(0.0, dot(gl_FrontFacing ? N : -N, V));
+
+// Fresnel rim shine
+float fresnel = pow(1.0 - NdotV, 3.2);
+
+// Specular glass highlight reflection
+vec3 lightDir = normalize(vec3(0.8, 1.2, 1.5));
+vec3 H = normalize(lightDir + V);
+float spec = pow(max(0.0, dot(gl_FrontFacing ? N : -N, H)), 36.0) * 0.55;
+
+// Backface softer attenuation through translucent glass
+float sideFactor = gl_FrontFacing ? 1.0 : 0.38;
+
+// Interactive touch ripple illumination
+float touchGlow = 0.0;
+if (vHoverDist < 0.7) {
+float touchDecay = smoothstep(0.7, 0.0, vHoverDist);
+touchGlow = touchDecay * 0.45 * uHoverIntensity;
+}
+
+float glassBody = 0.04 + fresnel * 0.45 + spec + touchGlow;
+float lineIntensity = (line * (0.95 + touchGlow * 0.5)) * sideFactor;
+float finalAlpha = clamp(glassBody + lineIntensity, 0.0, 0.95);
+
+// Monochrome silver-white shading
+vec3 baseGlass = vec3(0.88, 0.94, 1.0) * (fresnel * 0.7 + spec + touchGlow * 0.8);
+vec3 lineCol = vec3(mix(0.8, 1.0, line));
+vec3 finalColor = mix(baseGlass, lineCol, line);
+
+gl_FragColor = vec4(finalColor, finalAlpha);
+}
+`
+});
+
+const moonMesh = new THREE.Mesh(
+new THREE.IcosahedronGeometry(1.0, 72),
+contourMaterial
+);
+moonGroup.add(moonMesh);
+
+// Inner Translucent Glass Core for Depth
+const glassCoreMesh = new THREE.Mesh(
+new THREE.IcosahedronGeometry(0.95, 48),
+new THREE.MeshPhysicalMaterial({
+color: 0xffffff,
+metalness: 0.05,
+roughness: 0.1,
+transmission: 0.92,
+ior: 1.45,
+transparent: true,
+opacity: 0.18,
+depthWrite: false
+})
+);
+moonGroup.add(glassCoreMesh);
+
+// Pointer Raycasting & Interaction Setup
+const raycaster = new THREE.Raycaster();
+const mouseNDC = new THREE.Vector2(-10, -10);
+const targetHoverPoint = new THREE.Vector3(10.0, 10.0, 10.0);
+let targetHoverIntensity = 0.0;
+let currentHoverIntensity = 0.0;
+
+let isDragging = false;
+let prevMouseX = 0;
+let prevMouseY = 0;
+let targetRotX = 0.15;
+let targetRotY = 0.0;
+let rotX = 0.15;
+let rotY = 0.0;
+let targetZoom = 5.8;
+let currentZoom = 5.8;
+
+function updatePointerCoord(clientX, clientY) {
+mouseNDC.x = (clientX / window.innerWidth) * 2 - 1;
+mouseNDC.y = -(clientY / window.innerHeight) * 2 + 1;
+}
+
+function onPointerDown(e) {
+isDragging = true;
+const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+prevMouseX = clientX;
+prevMouseY = clientY;
+updatePointerCoord(clientX, clientY);
+}
+
+function onPointerMove(e) {
+const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+updatePointerCoord(clientX, clientY);
+
+if (isDragging) {
+targetRotY += (clientX - prevMouseX) * 0.005;
+targetRotX += (clientY - prevMouseY) * 0.005;
+targetRotX = Math.max(-Math.PI * 0.45, Math.min(Math.PI * 0.45, targetRotX));
+
+prevMouseX = clientX;
+prevMouseY = clientY;
+}
+}
+
+function onPointerUp() {
+isDragging = false;
+}
+
+function onPointerLeave() {
+mouseNDC.set(-10, -10);
+targetHoverIntensity = 0.0;
+}
+
+function onWheel(e) {
+e.preventDefault();
+targetZoom += e.deltaY * 0.002;
+targetZoom = Math.max(3.8, Math.min(8.0, targetZoom));
+}
+
+window.addEventListener('mousedown', onPointerDown);
+window.addEventListener('mousemove', onPointerMove);
+window.addEventListener('mouseup', onPointerUp);
+window.addEventListener('mouseleave', onPointerLeave);
+
+window.addEventListener('touchstart', onPointerDown, { passive: true });
+window.addEventListener('touchmove', onPointerMove, { passive: true });
+window.addEventListener('touchend', onPointerUp);
+
+window.addEventListener('wheel', onWheel, { passive: false });
+
+window.addEventListener('resize', () => {
+camera.aspect = window.innerWidth / window.innerHeight;
+camera.updateProjectionMatrix();
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+});
+
+// Main Render Loop
+const clock = new THREE.Clock();
+function animate() {
+requestAnimationFrame(animate);
+
+const t = clock.getElapsedTime();
+uniforms.uTime.value = t;
+
+if (!isDragging) {
+targetRotY += 0.002;
+}
+
+rotX += (targetRotX - rotX) * 0.06;
+rotY += (targetRotY - rotY) * 0.06;
+currentZoom += (targetZoom - currentZoom) * 0.06;
+
+moonGroup.rotation.x = rotX;
+moonGroup.rotation.y = rotY;
+camera.position.z = currentZoom;
+
+// Surface touch hit detection
+raycaster.setFromCamera(mouseNDC, camera);
+const intersects = raycaster.intersectObject(moonMesh);
+
+if (intersects.length > 0) {
+const localPoint = moonMesh.worldToLocal(intersects[0].point.clone());
+targetHoverPoint.copy(localPoint);
+targetHoverIntensity = 1.0;
+} else {
+targetHoverIntensity = 0.0;
+}
+
+uniforms.uHoverPoint.value.lerp(targetHoverPoint, 0.15);
+currentHoverIntensity += (targetHoverIntensity - currentHoverIntensity) * 0.08;
+uniforms.uHoverIntensity.value = currentHoverIntensity;
+
+renderer.render(scene, camera);
+}
+
+animate();
+</script>
+</body>
+</html>
